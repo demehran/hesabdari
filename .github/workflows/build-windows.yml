@@ -1,40 +1,33 @@
-name: Build Hesabdari Windows EXE
+name: Build Windows EXE
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [ main ]
+  workflow_dispatch:
 
 jobs:
   build:
     runs-on: windows-latest
-
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-    - name: Set up Python
-      uses: actions/setup-python@v4
-      with:
-        python-version: "3.11"
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
 
-    - name: Install dependencies
-      shell: powershell
-      run: |
-        python -m pip install --upgrade pip
-        pip install -r requirements.txt
-        pip install pyinstaller==6.10.0 pyinstaller-hooks-contrib
+      - name: Install deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt pyinstaller
 
-    - name: Build with PyInstaller
-      shell: powershell
-      run: |
-        if (Test-Path dist) { Remove-Item -Recurse -Force dist }
-        if (Test-Path build) { Remove-Item -Recurse -Force build }
-        if (Test-Path Hesabdari.spec) { Remove-Item -Force Hesabdari.spec }
-        if (Test-Path __pycache__) { Remove-Item -Recurse -Force __pycache__ }
-        pyinstaller --noconfirm --onedir --windowed --name Hesabdari --add-data "assets;assets" app\main.py
+      - name: Build EXE
+        run: |
+          pyinstaller --name Hesabdari --onefile --noconsole --hidden-import PyQt6.QtPrintSupport run.py
+          dir dist
 
-    - name: Upload Artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: Hesabdari-windows-exe
-        path: dist/Hesabdari
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Hesabdari-Windows
+          path: dist/Hesabdari.exe

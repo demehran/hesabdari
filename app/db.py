@@ -1,85 +1,82 @@
-from __future__ import annotations
-import os
 import sqlite3
-from pathlib import Path
-from typing import Optional
 
-try:
-    import pyodbc  # type: ignore
-except Exception:
-    pyodbc = None  # optional
+class Database:
+    def __init__(self, db_name="hesabdari.db"):
+        self.db_name = db_name
+        self.conn = sqlite3.connect(self.db_name)
+        self.cursor = self.conn.cursor()
+        self.create_tables()
 
-APP_DIR = Path(os.getenv("LOCALAPPDATA", Path.home() / "AppData" / "Local")) / "HesabdariApp"
-APP_DIR.mkdir(parents=True, exist_ok=True)
+    def create_tables(self):
+        self.cursor.execute("""
+            CREATE TABLE IF NOT EXISTS customers (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT, phone TEXT, address TEXT
+            )
+        """)
+        self.cursor.execute("""
+            CREATE TABLE IF NOT EXISTS products (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT, price REAL DEFAULT 0
+            )
+        """)
+        self.cursor.execute("""
+            CREATE TABLE IF NOT EXISTS invoices (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                customer TEXT, date TEXT, subtotal REAL, tax REAL, total REAL
+            )
+        """)
+        self.cursor.execute("""
+            CREATE TABLE IF NOT EXISTS settings (
+                key TEXT PRIMARY KEY, value TEXT
+            )
+        """)
+        self.conn.commit()
 
-USER_DB = APP_DIR / "data.db"
-USER_SETTINGS = APP_DIR / "settings.ini"
+    # --- CRUD helpers ---
+    def add_customer(self, name, phone, address):
+        self.cursor.execute("INSERT INTO customers (name, phone, address) VALUES (?,?,?)", (name, phone, address))
+        self.conn.commit()
 
-def ensure_sqlite_schema(db_path: Path):
-    conn = sqlite3.connect(db_path)
-    cur = conn.cursor()
-    cur.execute("""CREATE TABLE IF NOT EXISTS company (
-        id INTEGER PRIMARY KEY CHECK (id=1),
-        company_name_fa TEXT,
-        company_name_en TEXT,
-        company_phone TEXT,
-        company_address_fa TEXT,
-        company_address_en TEXT,
-        vat_percent REAL DEFAULT 9.0,
-        currency_symbol TEXT DEFAULT 'ریال'
-    )""")
-    cur.execute("""INSERT OR IGNORE INTO company (id, company_name_fa, company_name_en, company_phone, company_address_fa, company_address_en)
-                   VALUES (1, '', '', '', '', '')""")
-    cur.execute("""CREATE TABLE IF NOT EXISTS customers (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        name TEXT NOT NULL,
-        phone TEXT,
-        address TEXT
-    )""")
-    cur.execute("""CREATE TABLE IF NOT EXISTS products (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        name TEXT NOT NULL,
-        price REAL NOT NULL DEFAULT 0
-    )""")
-    cur.execute("""CREATE TABLE IF NOT EXISTS invoices (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        customer_id INTEGER NOT NULL,
-        date TEXT NOT NULL,
-        subtotal REAL NOT NULL,
-        discount_sum REAL NOT NULL,
-        taxable REAL NOT NULL,
-        vat REAL NOT NULL,
-        grand_total REAL NOT NULL,
-        FOREIGN KEY(customer_id) REFERENCES customers(id)
-    )""")
-    cur.execute("""CREATE TABLE IF NOT EXISTS invoice_items (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        invoice_id INTEGER NOT NULL,
-        product_id INTEGER NOT NULL,
-        quantity REAL NOT NULL,
-        unit_price REAL NOT NULL,
-        discount_percent REAL NOT NULL,
-        tax_percent REAL NOT NULL,
-        line_total REAL NOT NULL,
-        FOREIGN KEY(invoice_id) REFERENCES invoices(id),
-        FOREIGN KEY(product_id) REFERENCES products(id)
-    )""")
-    conn.commit()
-    conn.close()
+    def add_product(self, name, price):
+        self.cursor.execute("INSERT INTO products (name, price) VALUES (?,?)", (name, price))
+        self.conn.commit()
 
-def get_sqlite_conn(db_path: Optional[Path] = None):
-    path = db_path or USER_DB
-    ensure_sqlite_schema(path)
-    return sqlite3.connect(path)
+    def list_customers(self, q=None):
+        if q:
+            self.cursor.execute("SELECT id,name,phone,address FROM customers WHERE name LIKE ? OR phone LIKE ? OR address LIKE ? ORDER BY id DESC",
+                                (f"%{q}%", f"%{q}%", f"%{q}%"))
+        else:
+            self.cursor.execute("SELECT id,name,phone,address FROM customers ORDER BY id DESC")
+        return self.cursor.fetchall()
 
-def get_access_conn(connection_string: Optional[str] = None, file_path: Optional[str] = None):
-    if pyodbc is None:
-        raise RuntimeError("pyodbc is not available. Please use SQLite or install the Access Database Engine.")
-    conn_str = None
-    if connection_string:
-        conn_str = connection_string
-    elif file_path:
-        conn_str = f'DRIVER={{Microsoft Access Driver (*.mdb, *.accdb)}};DBQ={file_path};'
-    if not conn_str:
-        raise RuntimeError("Access connection string or file path is required.")
-    return pyodbc.connect(conn_str)
+    def list_products(self, q=None):
+        if q:
+            self.cursor.execute("SELECT id,name,price FROM products WHERE name LIKE ? ORDER BY id DESC", (f"%{q}%",))
+        else:
+            self.cursor.execute("SELECT id,name,price FROM products ORDER BY id DESC")
+        return self.cursor.fetchall()
+
+    def save_invoice_basic(self, customer, date, subtotal, tax, total):
+        self.cursor.execute("INSERT INTO invoices (customer,date,subtotal,tax,total) VALUES (?,?,?,?,?)",
+                            (customer, date, subtotal, tax, total))
+        self.conn.commit()
+        return self.cursor.lastrowid
+
+    def get_setting(self, key, default=None):
+        self.cursor.execute("SELECT value FROM settings WHERE key=?", (key,))
+        row = self.cursor.fetchone()
+        return row[0] if row else default
+
+    def set_setting(self, key, value):
+        self.cursor.execute("INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (key, value))
+        self.conn.commit()
+
+    def wipe_all(self):
+        self.cursor.execute("DELETE FROM customers")
+        self.cursor.execute("DELETE FROM products")
+        self.cursor.execute("DELETE FROM invoices")
+        self.conn.commit()
+
+    def close(self):
+        self.conn.close()
