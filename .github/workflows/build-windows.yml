@@ -1,0 +1,40 @@
+name: Build Hesabdari Windows EXE
+
+on:
+  push:
+    branches: [ "main" ]
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: "3.11"
+
+    - name: Install dependencies
+      shell: powershell
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install pyinstaller==6.10.0 pyinstaller-hooks-contrib
+
+    - name: Build with PyInstaller
+      shell: powershell
+      run: |
+        if (Test-Path dist) { Remove-Item -Recurse -Force dist }
+        if (Test-Path build) { Remove-Item -Recurse -Force build }
+        if (Test-Path Hesabdari.spec) { Remove-Item -Force Hesabdari.spec }
+        if (Test-Path __pycache__) { Remove-Item -Recurse -Force __pycache__ }
+        pyinstaller --noconfirm --onedir --windowed --name Hesabdari --add-data "assets;assets" app\main.py
+
+    - name: Upload Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: Hesabdari-windows-exe
+        path: dist/Hesabdari
